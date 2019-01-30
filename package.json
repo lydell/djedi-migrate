@@ -1,0 +1,18 @@
+{
+  "private": true,
+  "scripts": {
+    "eslint": "eslint ."
+  },
+  "dependencies": {
+    "djedi-react": "5.2.0",
+    "form-data": "2.3.3",
+    "get-stdin": "6.0.0",
+    "got": "9.6.0"
+  },
+  "devDependencies": {
+    "eslint": "5.12.1",
+    "eslint-config-lydell": "13.0.0",
+    "eslint-plugin-prettier": "3.0.1",
+    "prettier": "1.16.2"
+  }
+}
