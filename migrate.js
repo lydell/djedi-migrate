@@ -35,7 +35,7 @@ Example:
 
   const stdin = await getStdin();
 
-  const allUris = stdin
+  const urisList = stdin
     .split("\n")
     .map(line => {
       const item = line.trim();
@@ -43,58 +43,76 @@ Example:
     })
     .filter(Boolean);
 
-  const [imageUris, uris] = partition(allUris, uri => uri.endsWith(".img"));
-
-  const skippedUris = [];
-
-  const counts = {
-    images: imageUris.length,
-    skipped: 0,
-    succeeded: 0,
-    failed: 0,
+  const uris = {
+    success: [],
+    same: [],
+    images: [],
+    null: [],
+    fail: [],
   };
 
-  for (const uri of uris) {
+  for (const uri of urisList) {
+    if (uri.endsWith(".img")) {
+      uris.images.push(uri);
+      continue;
+    }
+
     try {
       console.log("");
       console.log(`#### ${uri}`);
 
       const urls = {
-        get: makeUrl(adminUrlFrom, uri, "/load"),
+        get1: makeUrl(adminUrlFrom, uri, "/load"),
+        get2: makeUrl(adminUrlTo, uri, "/load"),
         post: makeUrl(adminUrlTo, uri, "/editor"),
         put: makeUrl(adminUrlTo, uri, "%23draft/publish"),
       };
 
-      console.log("GET ", urls.get);
-      const response1 = await got.get(urls.get, {
+      console.log("GET1", urls.get1);
+      const response1 = await got.get(urls.get1, {
         headers: {
           Cookie: `sessionid=${sessionIdFrom}`,
         },
       });
 
-      const node = JSON.parse(response1.body);
-      if (node.data == null) {
-        console.log("SKIP null");
-        skippedUris.push(uri);
+      const node1 = JSON.parse(response1.body);
+      if (node1.data == null) {
+        console.log("NULL");
+        uris.null.push(uri);
         continue;
       }
-      console.log("DATA", truncate(node.data));
+      const data = truncate(node1.data);
+      console.log("DATA", data);
+
+      console.log("GET2", urls.get2);
+      const response2 = await got.get(urls.get2, {
+        headers: {
+          Cookie: `sessionid=${sessionIdTo}`,
+        },
+      });
+      const node2 = JSON.parse(response2.body);
+      if (node1.data === node2.data) {
+        console.log("SAME");
+        uris.same.push(uri);
+        continue;
+      }
+      console.log("OLD ", node2.data == null ? "null" : truncate(node2.data));
 
       console.log("POST", urls.post);
       if (dryRun) {
         console.log("(dry-run)");
       } else {
         const form = new FormData();
-        form.append("data", node.data);
-        const response2 = await got.post(urls.post, {
+        form.append("data", node1.data);
+        const response = await got.post(urls.post, {
           body: form,
           headers: {
             Cookie: `sessionid=${sessionIdTo}`,
           },
         });
-        console.log(response2.statusCode);
-        if (response2.statusCode !== 200) {
-          throw new Error(`Non-200 status code: ${response2.statusCode}`);
+        console.log(response.statusCode);
+        if (response.statusCode !== 200) {
+          throw new Error(`Non-200 status code: ${response.statusCode}`);
         }
       }
 
@@ -102,37 +120,50 @@ Example:
       if (dryRun) {
         console.log("(dry-run)");
       } else {
-        const response3 = await got.put(urls.put, {
+        const response = await got.put(urls.put, {
           headers: {
             Cookie: `sessionid=${sessionIdTo}`,
           },
         });
-        console.log(response3.statusCode);
-        if (response3.statusCode !== 200) {
-          throw new Error(`Non-200 status code: ${response3.statusCode}`);
+        console.log(response.statusCode);
+        if (response.statusCode !== 200) {
+          throw new Error(`Non-200 status code: ${response.statusCode}`);
         }
       }
 
-      counts.succeeded++;
+      uris.success.push({ uri, data });
     } catch (error) {
       console.error("FAIL", error.message);
-      counts.failed++;
+      uris.fail.push({ uri, data: error.message });
     }
   }
 
-  if (imageUris.length > 0) {
-    console.log("");
-    console.log("#### Image uris (skipped):");
-    console.log(imageUris.join("\n"));
-  }
+  const summary = Object.entries(uris)
+    .map(([name, subUris]) =>
+      subUris.length > 0
+        ? [`#### ${name.toUpperCase()}`]
+            .concat(
+              subUris.map(value =>
+                typeof value === "string"
+                  ? value
+                  : `${value.uri}\n  ${value.data}`
+              )
+            )
+            .join("\n")
+        : undefined
+    )
+    .filter(Boolean)
+    .join("\n\n");
 
-  if (skippedUris.length > 0) {
-    console.log("");
-    console.log("#### Skipped uris:");
-    console.log(skippedUris.join("\n"));
-  }
+  console.log("");
+  console.log("#".repeat(80));
+  console.log("");
+  console.log(summary);
 
-  counts.skipped = skippedUris.length;
+  const counts = Object.entries(uris).reduce((result, [name, subUris]) => {
+    result[name] = subUris.length;
+    return result;
+  }, {});
 
   console.log("");
   console.log("Done.");
@@ -144,19 +175,6 @@ function makeUrl(adminUrl, uri, suffix) {
     encodeURIComponent(encodeURIComponent(uri))
   );
   return `${adminUrl}/djedi/cms/node/${encoded}${suffix}`;
-}
-
-function partition(array, fn) {
-  const left = [];
-  const right = [];
-  for (const item of array) {
-    if (fn(item)) {
-      left.push(item);
-    } else {
-      right.push(item);
-    }
-  }
-  return [left, right];
 }
 
 const MAX_LENGTH = 80;
